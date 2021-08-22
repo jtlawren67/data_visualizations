@@ -1,0 +1,180 @@
+---
+title: "WWE Triple Crown Infographic"
+author: "JLaw"
+date: "8/22/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, 
+                      dev = "ragg_png", res = 500, retina = 1)
+```
+
+```{r prep}
+## load packages
+library(rvest)
+library(tidyverse)
+library(lubridate)
+library(ggbump)
+library(ggtext)
+library(showtext)
+library(patchwork)
+
+font_add_google("Bebas Neue", "bebas")
+font_add_google("Roboto", 'roboto')
+font_add_google('Concert One', 'concert')
+showtext_auto()
+
+theme_set(cowplot::theme_cowplot(font_size = 30))
+theme_update(
+  plot.background = element_rect(fill = 'black'),
+  panel.background = element_rect(fill = 'black'),
+  panel.border = element_rect(color = 'white'),
+  plot.title = element_markdown(color = 'white', size = 75, family = 'bebas'),
+  plot.subtitle = element_textbox_simple(color = 'white', family = 'roboto', size = 30, lineheight = .5),
+  plot.caption = element_markdown(color = 'white'),
+  plot.title.position = 'plot',
+  plot.caption.position = 'plot',
+)
+```
+
+```{r get_data, cache = TRUE}
+site <- read_html('https://en.wikipedia.org/wiki/Triple_Crown_(professional_wrestling)#WWE')
+
+x <- site %>%
+  html_element(xpath = '/html/body/div[3]/div[3]/div[5]/div[1]/table[14]') %>% 
+  html_table()
+```
+
+```{r data_prep}
+###CLean Data
+names(x) <- x %>% head(1) %>% unlist(., use.names=FALSE)
+x <- janitor::clean_names(x)
+x <- tail(x, -1)
+
+##
+x2 <- x %>% 
+  naniar::replace_with_na_all(~.x == '-') %>% 
+  mutate(
+    across(everything(), ~str_remove_all(.x, '\\[.+\\]')),
+    across(everything(), ~str_remove_all(.x, '\\(.+\\)')),
+    across(-champion, ~as_date(.x, format = '%B %d, %Y')),
+    heavyweight = pmin(wwf_wwe, world_heavyweight, na.rm = T),
+    tag_team = pmin(world_tag_team, wwe_raw_tag_team, na.rm = T)
+  ) 
+
+x3 <- x2 %>% 
+  mutate(time_to_tc = pmax(heavyweight, intercontinental, tag_team) - pmin(heavyweight, intercontinental, tag_team)) %>%
+  select(champion, time_to_tc, heavyweight, intercontinental, tag_team) %>%
+  pivot_longer(
+    cols = c('heavyweight', 'intercontinental', 'tag_team'),
+    names_to = 'championship',
+    values_to = 'date'
+  ) %>%
+  group_by(champion) %>%
+  mutate(rnk = dense_rank(date)) %>%
+  ungroup() %>%
+  mutate(
+    #Fix some Long Text Issues
+    champion = str_remove(champion, ' Steve Austin'),
+    champion = if_else(str_detect(champion, 'Bradshaw'), 'Bradshaw', champion),
+    lbl = glue::glue("{champion} ({as.integer(time_to_tc) %>% scales::comma(accuracy = 1)} days)")
+  )
+
+
+```
+
+```{r plot, fig.width=12, fig.height=30}
+superstar_progress <- x3 %>%
+  filter(champion != 'Pedro Morales') %>%
+  mutate(lbl =  fct_reorder(lbl, date, max),
+         championship = case_when(
+           championship == 'heavyweight' ~ '**Heavyweight**',
+           championship == 'intercontinental' ~ "**Intercontinental**",
+           championship == 'tag_team' ~ "**Tag Team**"
+         )) %>%
+  ggplot(aes(x = date, y = fct_rev(championship), color = lbl, group = lbl)) + 
+    geom_point() + 
+    geom_bump() + 
+    #Really Hacky Trick to Repeat the X-Axis on Every Facet
+    facet_wrap(~lbl, ncol = 3, dir = 'v', scales = "free_x") +
+    coord_cartesian(xlim = c(ymd(19870101), ymd(20210501))) + 
+    scale_color_discrete(guide = 'none') + 
+    labs(
+      x = "",
+      y = "",
+      title = "Superstars Progress Towards Triple Crown",
+      subtitle = 'The plot below shows when each of the 32 Superstars won each of their pieces of the triple crown and the order that they won them in.  Times until completion range from CM Punk in 203 days to Ric Flair at close to 14 years!   <br /><br />',
+      caption = "**NOTE:** Pedro Morales had completed the triple crown first in 1980, but he is excluded because it would mess up the axes.<br />Also, exclusion of the Women's Champions is purely for convenience."
+    ) + 
+    theme(
+      plot.margin = margin(t = 30, b = 20),
+      plot.caption = element_markdown(lineheight = .5, hjust = 0),
+      axis.text.x = element_text(color = 'white'),
+      axis.line.x = element_line(color = 'white'),
+      axis.text.y = element_markdown(color = 'white'),
+      axis.line.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      strip.background = element_rect(fill = 'black'),
+      strip.text = element_markdown(color = 'white', family = 'concert', size = 34)
+    )
+
+
+belt_order <- x3 %>% 
+  group_by(championship, rnk) %>%
+  summarize(n = n()) %>%
+  mutate(pct = n/sum(n),
+         championship = case_when(
+           championship == 'heavyweight' ~ '<img src = "WWE_World_Heavyweight_Championship.png"  width = "200"/><br />**Heavyweight Championship**',
+           championship == 'intercontinental' ~ "<img src = 'WWE_Intercontinental_Championship_2019_trans.png' width = '200'/><br />**Intercontinental Championship**",
+           championship == 'tag_team' ~ "<img src = 'World_Tag_Team_Championship.png' width = '200' /><br />**Tag Team Championship**"
+         ),
+         rnk = factor(rnk)) %>%
+  ggplot(aes(x = rnk, y = n, fill = rnk)) + 
+    geom_col() + 
+    geom_text(aes(label = glue::glue("{n} ({pct %>% scales::percent(accuracy = 1)})")),
+              color = 'white',
+              position = position_stack(vjust = .5),
+              size = 10) + 
+    facet_wrap(~fct_rev(championship), nrow = 1) + 
+    labs(title = "What Order Were The Belts Won In?",
+         subtitle = "Of the 32 WWF/E Triple Crown Winners, **very few** won the most prestegious title first with close to half winning the World Heavyweight Championship as the last piece.  ",
+         ) + 
+    scale_fill_manual(guide = 'none',
+                      values = c(
+                        "1" = '#E90505',
+                        "2" = '#022340',
+                        "3" = '#023E73'
+                      )) +
+    scale_x_discrete(labels = c('Won\nFirst', 'Won\nSecond', 'Won\nLast')) + 
+    scale_y_continuous(expand = expansion(mult = c(0, .1))) + 
+    theme(
+      strip.text = element_markdown(color = 'white'),
+      strip.background = element_blank(),
+      axis.text.x = element_text(color = 'white', lineheight = .5),
+      axis.line.x = element_line(color = 'white'),
+      axis.ticks.x = element_blank(),
+      axis.title.x = element_blank(),
+      axis.text.y = element_blank(),
+      axis.line.y = element_blank(),
+      axis.ticks.y = element_blank(),
+      axis.title.y = element_blank(),
+    )
+
+
+##Combine Plots (using wrap avoid the bottom chart being overly identity since only one panel has axis text)
+wrap_elements(full = superstar_progress) / wrap_elements(full = belt_order) + 
+  plot_layout(heights = c(5, 1.5)) + 
+  plot_annotation(
+    title = "<img src = 'wwe-logo-png.png' width = '50' /> Triple Crown Winners (1987-2021)",
+    subtitle = "A ***Triple Crown*** in Professional Wrestling is winning a world championship, another singles championship, and a tag team championship.",
+    caption = "<br />*Source:* Wikipedia | **Author:** JLaw",
+    theme = theme(
+      plot.background = element_rect(fill = 'black', color = 'white'),
+      plot.title = element_markdown(family = 'bebas', size = 100),
+      plot.caption = element_markdown(size = 31)
+    )
+  )
+
+```
+

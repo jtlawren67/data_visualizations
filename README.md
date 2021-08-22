@@ -9,6 +9,8 @@ myself.
 
 ## 2021/08/27 - WWF/E Triple Crown Champions
 
+![](20210822_WWE_Triple_Crown_Champions/wwe_triple_crown_infographic_files/figure-html/plot-1.png)
+
 ## 2021/05/16 - Comparing 1998 and 2007 AFI Top 100 Lists
 
 ![](https://raw.githubusercontent.com/jtlawren67/afi_top_100/master/README_files/figure-gfm/unnamed-chunk-3-1.png)

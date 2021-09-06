@@ -1,0 +1,180 @@
+---
+title: "Challenge Seasons Infographic"
+author: "JLaw"
+date: "9/6/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, 
+                      dev = "ragg_png", res = 500, retina = 1)
+```
+
+```{r load_libraries}
+library(ggraph)
+library(tidygraph) 
+library(tidyverse)
+library(rvest)
+library(showtext)
+library(ggtext)
+library(patchwork)
+
+
+font_add_google("Hind", "hind")
+font_add_google("Roboto", 'roboto')
+font_add_google('PT Sans Narrow', 'pt')
+showtext_auto()
+
+```
+
+
+```{r prep, cache = TRUE}
+###GET DATA
+##Driver Page to Get All Seasons and Links
+seasons <- read_html('https://en.wikipedia.org/wiki/The_Challenge_(TV_series)') %>%
+  html_element(xpath = '/html/body/div[3]/div[3]/div[5]/div[1]/table[2]') %>% 
+  html_elements('a') %>% 
+  html_attrs() %>% 
+  map_dfr(bind_rows) %>% 
+  filter(str_detect(title, 'Challenge|Stars')) %>%
+  select(-class)
+
+## Set up which tables and columns to extract from WikiPedia
+seasons <- seasons %>%
+  mutate(
+    season_num = row_number(),
+    table_num = case_when(
+      season_num %in% c(1, 12, 16, 19) ~ '2',
+      season_num %in% c(27) ~ '3',
+      season_num %in% c(2, 4, 5, 6, 9, 11) ~ '4,5',
+      TRUE ~ '3, 4'
+    ),
+    keep_cols = case_when(
+      season_num %in% c(5) ~ '1, 2',
+      season_num %in% c(12, 19, 27) ~ '1, 3',
+      TRUE ~ '1'
+    )
+  )
+
+
+### Write Function to Scrape the Names
+get_cast <- function(url, table_num, keep_cols, title, order){
+  
+  table_num = str_split(table_num, ',') %>% unlist() %>% as.numeric()
+  keep_cols = str_split(keep_cols, ',') %>% unlist() %>% as.numeric()
+  
+  #Read Page and Filter Tables
+  ct <- read_html(paste0('https://en.wikipedia.com/',url)) %>%
+    html_elements('table') %>%
+    .[table_num] %>% 
+    html_table() %>% 
+    map(~select(.x, all_of(keep_cols)))
+  
+  #If Keeping Multiple Columns Gather to a Single Column
+  if(length(keep_cols) == 1){
+    ct <- ct %>% 
+      map(~rename(.x, "Name" = 1)) 
+  }else if(length(keep_cols) > 1){
+    ct <- ct %>%
+      map(~gather(.x, "Field", "Name")) %>% 
+      map(~select(.x, 2)) 
+  }
+  
+  # Combine all the tables into 1 columns and append title column
+  ct <- ct %>% map_dfr(bind_rows) %>% mutate(title = title, order = order)
+
+  return(ct)
+  
+}
+
+###Create Dataset with all names
+all_cast <- pmap_dfr(list(seasons$href, 
+                          seasons$table_num, 
+                          seasons$keep_cols,
+                          seasons$title,
+                          seasons$season_num), 
+                     ~get_cast(..1, ..2, ..3, ..4, ..5))
+
+###Clean up the Cast Member Columns and Clean up The Title Columns
+###Domain KNowledge that these are all the same people (especially the married ones)
+all_cast_clean <- all_cast %>%
+  mutate(
+    #Remove Footnotes
+    Name = str_remove_all(Name, '\\[.*\\]'),
+    #Fix the Various References to Johnny Bananas
+    Name = if_else(str_detect(Name, 'John.* Devenanzio'),'Johnny "Bananas" Devenanzio',Name),
+    Name = if_else(str_detect(Name, 'Jordan.*Wiseley'), 'Jordan Wiseley', Name),
+    Name = if_else(str_detect(Name, 'Natalie.*Duran'), 'Natalie "Ninja" Duran', Name),
+    Name = if_else(str_detect(Name, 'Theresa Gonz'), 'Theresa Jones', Name),
+    Name = if_else(str_detect(Name, 'Tori Fiorenza'), 'Tori Hall', Name)
+  )
+
+##Season Table
+seasons_table <- read_html('https://en.wikipedia.org/wiki/The_Challenge_(TV_series)') %>%
+  html_element(xpath = '/html/body/div[3]/div[3]/div[5]/div[1]/table[2]') %>%
+  html_table() %>%
+  janitor::clean_names() %>%
+  mutate(year = str_extract(original_release, '\\d{4}') %>% as.integer()) %>%
+  select(order, short_title = title, year) %>%
+  distinct() %>%
+  mutate(short_title = if_else(order == 23, 'Battle of the Seasons 2', short_title))
+
+
+all_cast_info <- all_cast_clean %>%
+  left_join(seasons_table, by = "order")
+
+```
+
+```{r viz, fig.width=9, fig.height=12}
+
+cast <- all_cast_info %>% 
+    add_count(Name, name = 'num_seasons') %>%
+    filter(num_seasons >= 7) %>%
+    group_by(Name) %>%
+    arrange(order, .by_group = T) %>%
+    mutate(
+      diff = order - lag(order),
+      new_segment = if_else(is.na(diff) | diff > 1, 1, 0),
+      run = cumsum(new_segment)
+    ) %>% 
+    group_by(Name, run) %>% 
+    summarize(start = min(order),
+              end = max(order),
+              num_seasons = max(num_seasons)) %>%
+  ggplot(aes(x = fct_rev(fct_reorder(Name, start, min)), color = Name, fill = Name)) + 
+    geom_linerange(aes(ymin = start, ymax = end), size = 2) + 
+    geom_point(aes(y = start), size = 4) + 
+    geom_point(aes(y = end), size = 4) + 
+    scale_fill_discrete(guide = 'none') + 
+    scale_color_discrete(guide = 'none') +
+    scale_y_continuous(breaks = seq(1, 37, 2)) + 
+    labs(x = "", y = "Season Number", title = "What Challengers Appeared Most Frequently and When?",
+         subtitle = "*Challengers Ordered By First Appearance*",
+         caption = "*Includes only those having been on >7 Seasons*") + 
+    coord_flip() + 
+    cowplot::theme_cowplot() + 
+    theme(
+      panel.grid.major.y = element_line(size = .5, color = '#DDDDDD'),
+      plot.title = element_text(hjust = .5, size = 32, family = 'hind'),
+      plot.caption = element_markdown(size = 20),
+      plot.subtitle = element_markdown(hjust = .5, size = 30, family = 'pt'),
+      axis.ticks.y = element_blank(),
+      axis.text = element_text(family = 'pt', size = 25),
+      axis.title.x = element_text(family = 'roboto', size = 25)
+    )
+
+cast + 
+  plot_annotation(
+    title = "Exploring <img src='the-challenge-logo.png' height=27 width=90 /> Casts and Seasons",
+    subtitle = "For 37 Seasons, The Challenge has appeared on MTV with an evolving cast of characters beginning by casting Real World and Road Rules and eventually branching out to other reality shows both in the US and abroad.",
+    caption = "<br />*Source:* Wikipedia | **Author:** JLaw",
+    theme = theme(
+      #plot.background = element_rect(fill = 'black', color = 'white'),
+      plot.title = element_markdown(family = 'hind', size = 55),
+      plot.subtitle = element_textbox_simple(family = 'roboto', size = 27, lineheight = 0.5, margin = margin(t = 5)),
+      plot.caption = element_markdown(size = 25)
+    )
+  )
+
+```
+

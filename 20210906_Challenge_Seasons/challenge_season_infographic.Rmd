@@ -106,7 +106,8 @@ all_cast_clean <- all_cast %>%
     Name = if_else(str_detect(Name, 'Jordan.*Wiseley'), 'Jordan Wiseley', Name),
     Name = if_else(str_detect(Name, 'Natalie.*Duran'), 'Natalie "Ninja" Duran', Name),
     Name = if_else(str_detect(Name, 'Theresa Gonz'), 'Theresa Jones', Name),
-    Name = if_else(str_detect(Name, 'Tori Fiorenza'), 'Tori Hall', Name)
+    Name = if_else(str_detect(Name, 'Tori Fiorenza'), 'Tori Hall', Name),
+    Name = if_else(str_detect(Name, 'Nany'), 'Nany González', Name)
   )
 
 ##Season Table

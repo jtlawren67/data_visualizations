@@ -1,0 +1,141 @@
+---
+title: "&nbsp;"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, error = FALSE, message = FALSE)
+```
+
+```{r libraries}
+library(tidyverse)
+library(gt)
+library(gtExtras)
+library(glue)
+```
+
+```{r constants_and_data}
+ROTTEN_URL = 'https://www.rottentomatoes.com/assets/pizza-pie/images/icons/tomatometer/tomatometer-rotten.f1ef4f02ce3.svg'
+FRESH_URL = 'https://www.rottentomatoes.com/assets/pizza-pie/images/icons/tomatometer/tomatometer-fresh.149b5e8adc3.svg'
+OSCAR_URL = 'https://upload.wikimedia.org/wikipedia/en/7/7f/Academy_Award_trophy.png'
+US_FLAG_URL = 'https://upload.wikimedia.org/wikipedia/en/thumb/a/a4/Flag_of_the_United_States.svg/188px-Flag_of_the_United_States.svg.png'
+WORLD_FLAG_URL = 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/3b/EarthFlag1.svg/525px-EarthFlag1.svg.png'
+
+#Read Back in Data
+movies <-  readRDS('box_office_data.RDS')
+```
+
+```{r merge_stack_helper}
+merge_stack_helper <- function(gt_object, col1, col2, colors = c('black', 'grey')){
+
+    col1_bare <- rlang::enexpr(col1) %>% rlang::as_string()
+    row_name_var <- gt_object[["_boxhead"]][["var"]][which(gt_object[["_boxhead"]][["type"]] == 
+        "stub")]
+    col2_bare <- rlang::enexpr(col2) %>% rlang::as_string()
+    data_in <- gt_object[["_data"]][[col2_bare]]
+    gt_object %>% text_transform(locations = if (isTRUE(row_name_var == col1_bare)) {
+        cells_stub(rows = gt::everything())
+    }
+    else {
+        cells_body(columns = {{col1}})
+    }, fn = function(x) {
+        glue::glue("<div style='line-height:10px'><span style='font-weight:bold;font-variant:small-caps;color:{colors[1]};font-size:18px'>{x}</div>\n        <div style='line-height:14px'><span style ='font-weight:bold;color:{colors[2]};font-size:14px'>{data_in}</span></div>")
+    }) %>% cols_hide(columns = {{col2}})
+    }
+
+```
+
+
+```{r table}
+#Build Table
+p <- movies %>%
+  select(poster_url, title, release_date, domestic_lifetime_gross, foreign_lifetime_gross,
+         domestic_percent, worldwide_lifetime_gross, num_oscars, rating) %>%
+  head(10) %>% 
+  gt() %>% 
+    tab_header(
+      title = html("What are the most <b><span style='color:#002868'>American</span></b> of American Films?"),
+      subtitle = html("As measured by the share of Box Office Gross coming from the United States versus the rest of the world, movies with or about <b>Adam Sandler</b>, <b>Football</b>, and <b>Christmas</b> tend to be Box Office successes in the United States but not the rest of the world.  Although, it is unclear whether it is Football or Adam Sandler that makes the movie most appealing to American tastes.")
+    ) %>%
+    tab_style(
+      style = cell_text(
+        size = "xx-large",
+        font = google_font('Josefin Sans'),
+        align = 'left',
+        transform = 'uppercase'
+      ),
+      location = cells_title("title")
+    ) %>%
+    tab_style(
+      style = cell_text(
+        size = "large",
+        font = google_font('Inter'),
+        align = 'left'
+      ),
+      location = cells_title("subtitle")
+    ) %>%
+    cols_label(
+      poster_url = "",
+      title = "Title",
+      domestic_lifetime_gross = html(glue("{web_image(US_FLAG_URL)}<br />United States")),
+      foreign_lifetime_gross = html(glue("{web_image(WORLD_FLAG_URL)}<br />Rest of World")),
+      domestic_percent = "US % of Total",
+      worldwide_lifetime_gross = glue("{emo::ji('dollar')}Total{emo::ji('dollar')}"),
+      num_oscars = "# Oscars won",
+      rating = "Rotten Tomatoes Score"
+    ) %>%
+    tab_spanner(label = "Box Office Gross", columns = domestic_lifetime_gross:worldwide_lifetime_gross) %>%
+    #Writing My Own Version of Merge/Stack
+    merge_stack_helper(title, release_date) %>% 
+    gt_img_rows(poster_url, height = 75) %>%
+    fmt_percent(domestic_percent, decimals = 1) %>%
+    fmt_currency(columns = c("domestic_lifetime_gross", "foreign_lifetime_gross"),
+                 suffixing = T, decimals = 1) %>%
+    gt_plt_bar(worldwide_lifetime_gross, color = 'darkgreen', width = 50) %>%
+    text_transform(
+      locations = cells_body(rating),
+      fn = function(rating){
+        glue('{web_image(img)}<br />{rating}', 
+             img = if_else(parse_number(rating) < 60, ROTTEN_URL, FRESH_URL)
+        )
+      }
+    ) %>%
+    text_transform(
+      locations = cells_body(num_oscars),
+      fn = function(x){
+        int_x <- as.integer(x)
+        lapply(int_x, function(y){
+          rep(web_image(OSCAR_URL, height=60), y) %>%
+            gt::html()
+        })
+        }
+    ) %>%
+    tab_style(
+      style = cell_text(
+        size = 'x-large',
+        weight = 'bold',
+        transform = 'uppercase',
+        font = google_font('Bebas Neue')
+      ),
+      locations = list(cells_column_labels(), cells_column_spanners())
+    ) %>%
+    tab_style(
+      style = cell_text(align = 'center'),
+      locations = cells_column_labels(-title)
+    ) %>%
+    tab_style(
+      style = cell_text(font = google_font('Sora'), align = 'center'),
+      locations = cells_body(-title)
+    ) %>%
+    cols_width(
+      poster_url ~ px(75)
+    ) %>%
+    opt_row_striping() %>%
+    tab_options(row.striping.background_color = "#ececec") %>%
+    tab_source_note(
+      md("***Author:*** JLaw | ***Sources:*** [BoxOfficeMojo,com](https://www.boxofficemojo.com/chart/ww_top_lifetime_gross/?offset=0) and [Open Movie Database](https://www.omdbapi.com/)")
+    ) 
+
+p
+```
+

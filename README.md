@@ -7,6 +7,10 @@ mind. Inspired by [z3tt’s TidyTuesday
 repo](https://github.com/Z3tt/TidyTuesday). I decided to make a repo for
 myself.
 
+## 2021/10/04 - What is the Most American of American Films
+
+![](20211003_MostAmericanMovie/most_american_films.png)
+
 ## 2021/09/06 - Which MTV The Challenge Cast Has Appeared Most Often and When
 
 ![](20210906_Challenge_Seasons/challenge_season_infographic_files/figure-html/viz-1.png)

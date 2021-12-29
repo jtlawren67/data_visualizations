@@ -1,0 +1,136 @@
+---
+title: "&nbsp;"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, error = FALSE, message = FALSE)
+```
+
+
+```{r libraries}
+library(tidyverse)
+library(cfbfastR)
+library(tidygraph)
+library(ggraph)
+library(ggtext)
+library(showtext)
+library(patchwork)
+
+font_add_google('Roboto', "roboto")
+showtext_auto()
+```
+
+```{r get_data, cache=TRUE}
+conference_graph_data <- map_dfr(1980:2021, function(yr){
+  # get the list of schools for a given year
+  x <- cfbd_team_info(year = yr) %>%
+    # remove independents
+    filter(conference != 'FBS Independents') %>%
+    group_by(conference) %>% 
+    # get all combinations of schools within each conference
+    expand(school, school, .name_repair = 'universal')%>% 
+    # Remove the combinations that are the same school twice
+    filter(school...2 != school...3) %>%
+    # Enforce an order so that each school pair appears in the same order
+    mutate(school1 = if_else(school...2 < school...3, school...2, school...3),
+           school2 = if_else(school...2 < school...3, school...3, school...2),
+           season = yr) %>%
+    # subset the columns
+    select(season, conference, school1, school2) %>%
+    # remove duplicates since each combination would be counted twice
+    distinct()
+  return(x)
+  
+})
+```
+
+```{r school_list, cache=TRUE}
+y2000 <- cfbd_team_info(year = 2000) %>%
+  filter(conference != 'FBS Independents') %>%
+  pull(school)
+
+```
+
+```{r build_graphs}
+conf_graph_2000 <- conference_graph_data %>% 
+  ungroup() %>% 
+  filter(season <= 2000) %>% 
+  count(school1, school2, name = 'weight', sort = T) %>% 
+  filter(school1 %in% y2000 & school2 %in% y2000) %>% 
+  as_tbl_graph(directed = F) %>%
+  mutate(degree = centrality_degree(),
+         community = group_louvain())
+
+conf_graph_2021 <- conference_graph_data %>% 
+  ungroup() %>% 
+  filter(season > 2000) %>%
+  count(school1, school2, name = 'weight', sort = T) %>% 
+  filter(school1 %in% y2000 & school2 %in% y2000) %>% 
+  as_tbl_graph(directed = F) %>%
+  mutate(degree = centrality_degree()) %>%
+  left_join(
+    conf_graph_2000 %>% 
+      as_tibble() %>%
+      select(name, community),
+    by = "name"
+  )
+
+
+```
+
+```{r viz1}
+g2000 <- conf_graph_2000 %>% 
+  ggraph() + 
+  geom_edge_link(aes(edge_alpha = weight, edge_color = weight, edge_width = weight)) + 
+  geom_node_label(aes(label = name, fill = factor(community)), show.legend = F, 
+                  size = 2.5) + 
+  scale_edge_alpha_continuous(guide = 'none') + 
+  scale_edge_width(range = c(.5, 2)) + 
+  scale_edge_color_viridis(option = 'C', end = .8, guide = 'none') + 
+  ggthemes::scale_fill_gdocs(guide = F, palette = ggthemes::tableau_color_pal()) + 
+  labs(subtitle = "**1980-2000**",
+       edge_width = "Years Affiliated") + 
+  theme_graph() + 
+  theme(
+    legend.position = 'bottom',
+    plot.subtitle = element_markdown(family = 'roboto', size = 22),
+  )
+
+g2021 <- conf_graph_2021 %>% 
+  ggraph() + 
+  geom_edge_link(aes(edge_alpha = weight, edge_color = weight, edge_width = weight)) + 
+  geom_node_label(aes(label = name, fill = factor(community)), show.legend = F, size = 2.5) + 
+  scale_edge_alpha_continuous(guide = 'none') + 
+  scale_edge_width(range = c(.5, 2)) + 
+  scale_edge_color_viridis(option = 'C', end = .8, guide = 'none') + 
+  ggthemes::scale_fill_gdocs(guide = F, palette = ggthemes::tableau_color_pal()) + 
+  labs(subtitle = "**2001-2021**",
+       edge_width = "Years Affiliated") + 
+  theme_graph() + 
+  theme(
+    legend.position = 'bottom',
+    plot.subtitle = element_markdown(family = 'roboto', size = 22),
+    plot.caption = element_markdown()
+  )
+```
+
+```{r combined_viz, out.width="100%", fig.height=8}
+
+g2000 / 
+  g2021 + 
+  plot_layout(guides = 'collect') + 
+  plot_annotation(title = "**The Chaos of College Football Realignment**",
+                  subtitle = "<br />Looking at College Football Conference Affiliations between *1980-2000* and *2000-2021* the era of Conference Realignment has brought together the various schools breaking down the historical isolation that had existed for Conferences like the Big Ten, PAC-10, and ACC.  While the dissolution of the Southwest Conference in 1996 created a series of new connections those were much more contained than the constant motion of modern realignment",
+                  caption = "**Author:** JLaw | **Source:** College Football Database API",
+                  theme = theme(plot.subtitle = element_textbox_simple(family = 'roboto', size = 18,
+                                                                       lineheight = .6))
+                  ) & 
+  theme(
+    plot.title = element_markdown(family = 'roboto', size = 28),
+    plot.caption = element_markdown(size = 18),
+    legend.position = 'bottom',
+  )
+
+```
+

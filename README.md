@@ -7,9 +7,9 @@ mind. Inspired by [z3tt’s TidyTuesday
 repo](https://github.com/Z3tt/TidyTuesday). I decided to make a repo for
 myself.
 
-## 2021/10/04 - What is the Most American of American Films
+## 2021/12/29 - The Chaos of College Football Realignment
 
-![](20211003_MostAmericanMovie/most_american_films.png)
+![](20211229_CollegeFootballRealignment/conference_realignment.png)
 
 ## 2021/09/06 - Which MTV The Challenge Cast Has Appeared Most Often and When
 

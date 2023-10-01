@@ -1,0 +1,339 @@
+---
+title: "&nbsp;"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, error = FALSE, message = FALSE, dev = "ragg_png")
+```
+
+
+```{r libraries}
+library(tidyverse)
+library(broom)
+library(ggrepel)
+library(glue)
+library(ggtext)
+library(patchwork)
+
+theme_set(theme_light(base_size = 14, base_family = "Asap SemiCondensed"))
+
+theme_update(
+  panel.grid.minor = element_blank(),
+  plot.title = element_text(face = "bold"),
+  plot.title.position = "plot"
+)
+```
+
+```{r dataPrep, cache = TRUE}
+basics <- read_delim(file = 'https://datasets.imdbws.com/title.basics.tsv.gz', delim = '\t', na = '\\N')
+ratings <- read_delim(file = 'https://datasets.imdbws.com/title.ratings.tsv.gz', delim = '\t')
+episodes <- read_delim(file = 'https://datasets.imdbws.com/title.episode.tsv.gz', delim = '\t', na ='\\N')
+
+basics_agg <- basics %>%
+  # Limit to TV Series
+  filter(titleType == 'tvSeries') %>% 
+  # Keep Only Shows Starting In or After 1990
+  filter(startYear >= 1990) %>%
+  # Join all the Episodes to the TV Series data
+  inner_join(episodes, by = join_by(tconst==parentTconst)) %>%
+  # Join the ratings to the episode data
+  inner_join(ratings, by = join_by(tconst.y == tconst)) %>% 
+  # Calculate summary statistics for each show
+  group_by(tconst, titleType, primaryTitle, originalTitle, 
+           isAdult, startYear, endYear, runtimeMinutes, genres) %>%
+  summarize(
+    total_episodes = n(),
+    avg_votes = mean(numVotes),
+    overall_average = sum(numVotes * averageRating) / sum(numVotes),
+    .groups = 'drop'
+  ) %>%
+  # Keep Comedies and Dramas
+  filter(str_detect(genres, 'Comedy|Drama')) %>%
+  # Exclude Other Genres
+  filter(!str_detect(genres, 'Talk-Show|Reality-TV|News|Game-Show|Short')) %>%
+  # Keep Only if 20+ Episodes on Series
+  filter(total_episodes >= 20) %>%
+  # Keep Only if Episodes Average 250 Votes or More
+  filter(avg_votes > 250)
+
+all_tv_details <- basics_agg %>% 
+  ## Join in Episode Data
+  inner_join(episodes, by = join_by(tconst==parentTconst)) %>%
+  ## Join in Ratings Data
+  inner_join(ratings, by = join_by(tconst.y == tconst)) %>% 
+  # Bring in Episode Titles
+  left_join(basics %>% filter(titleType == 'tvEpisode') %>% 
+              transmute(tconst, episodeTitle = primaryTitle),
+            by = join_by(tconst.y == tconst)) %>% 
+  arrange(tconst, seasonNumber, episodeNumber) %>% 
+  group_by(tconst) %>% 
+  # Create variables for total number episodes
+  mutate(episodeOverall = row_number(tconst),
+         seasonNumber = factor(seasonNumber)
+  ) %>%
+  # Filter Out Missing Data
+  filter(!is.na(seasonNumber) & !is.na(episodeNumber)) %>%
+  ungroup()
+
+rm(basics)
+rm(basics_agg)
+rm(episodes)
+rm(ratings)
+```
+
+```{r anomalyFunction}
+get_anomalies <- function(dt, onlyAnomalies = T){
+  
+  ## STEP 1: Run Linear Model on IMDB Ratings vs. Episode Number + Season Info
+  #if multiple seasons for show use both global and local trend
+  if(n_distinct(dt$seasonNumber) > 1){
+    model <- lm(averageRating ~ episodeOverall + seasonNumber*episodeNumber, 
+                data = dt)
+  }
+  # if only one season then global trend = local trend
+  else{
+    model <- lm(averageRating ~ episodeOverall, data = dt)
+  }
+  
+  ### Step 2 - Add in Residuals from model to initial data set
+  results <- augment(model, dt) %>% 
+  ### Step 3 - Calculate the 3*IQR Range for each episode
+    mutate(
+      ## Determine the IQR of the Residuals (P75 - P25)
+      iqr = (quantile(.resid, .75)-quantile(.resid, .25)),
+      ## Set Lower Bound for expected range of residuals
+      lci = quantile(.resid, .25)-(3*iqr),
+      ## Set Upper Bound for expected range of residuals
+      uci = quantile(.resid, .75)+(3*iqr),
+      ## Tag an episode as an anomaly if its actual rating is outside the bounds
+      anomaly = if_else(.resid > uci | .resid < lci, T, F),
+      
+      ## Set expected range back in the scale of the 0-10 prediction.
+      lower = .fitted + lci,
+      upper = .fitted + uci,
+      
+      # Step 4 - Calculate the difference between the bounds and the actual 
+      # value to use for measure of unexpectedness
+      remainder = if_else(.resid < 0, averageRating-lower, averageRating-upper)
+    ) %>% 
+    # Subset columns
+    select(episodeOverall, seasonNumber, episodeNumber, episodeTitle, 
+           averageRating, .fitted, .resid, 
+           anomaly, lower, upper, remainder)
+  
+  # Determine whether to return all episodes or just the unexpected episodes
+  if(onlyAnomalies == T){
+    return(results %>% filter(anomaly == T))
+  }
+  else{
+    return(results)
+  }
+}
+
+```
+
+```{r unexpectedResults, cache = TRUE}
+results <- all_tv_details %>% 
+  # Create a dataset with 1 row per TV Series with all data in a list-column
+  group_by(primaryTitle) %>%
+  nest() %>% 
+  # Run the function to get the unexpected episodes as a new list-column
+  mutate(results = map(data, get_anomalies)) %>% 
+  # Break the new list-column back into individual rows
+  unnest(results) %>%
+  # Drop the original list columns and ungroup the data set
+  select(-data) %>% 
+  ungroup() %>%
+  # Use Glue package to make a pretty label
+  mutate(
+    lbl = glue("**{primaryTitle}** S{s}E{e}<br>{episodeTitle}",
+               s = if_else(as.numeric(seasonNumber) < 10, 
+                           glue("0{seasonNumber}"), glue("{seasonNumber}")),
+               e = if_else(as.numeric(episodeNumber) < 10, 
+                           glue("0{episodeNumber}"), glue("{episodeNumber}"))
+    )
+  )
+```
+
+```{r visualization, fig.height=12, fig.width=10}
+color = c("Actual\nRating" = "darkred",
+          "Predicted\nRating" = 'black', 
+          "Series\nAverage" = "darkblue")
+shape = c("Actual\nRating" = 19, 
+          "Predicted\nRating" = 19, 
+          "Series\nAverage" = 1)
+
+unexpected_good <- good_results <- results %>% 
+  filter(.resid > 0)  %>% 
+  slice_max(order_by = remainder, n = 10, with_ties = F)  %>% 
+  select(lbl, .resid, Predicted = .fitted, Actual = averageRating, 
+         lower, upper, remainder) %>% 
+  ggplot(aes(x = fct_reorder(lbl, remainder))) + 
+  geom_pointrange(aes(y = Predicted, ymin = lower, ymax = upper, 
+                      color = 'Predicted\nRating')) + 
+  geom_point(aes(y = Actual, color = "Actual\nRating"), size = 2) +
+  geom_text(aes(label = Actual, y = Actual), color = 'darkred', nudge_x = .2) +
+  geom_text(aes(label = round(lower, 1), y = lower),  nudge_x = .2, size = 3) +
+  geom_text(aes(label = round(upper, 1), y = upper),  nudge_x = .2, size = 3) +
+  geom_text(aes(label = round(Predicted, 1), y = Predicted),  nudge_x = .2) +
+  scale_color_manual(values = color, name = '') +
+  labs(x = "", y = "IMDB Rating", 
+       title = "Top 10 Unexpectedly <i style = 'color:#2E8B57'>Good Episodes </i>") + 
+  coord_flip() + 
+  theme(
+    plot.title = element_markdown(),
+    plot.title.position = 'plot',
+    plot.subtitle = element_markdown(size = 10),
+    panel.grid.major.x = element_blank(),
+    axis.text.x = element_markdown(size = 10, hjust = .95, vjust = .5),
+    axis.title.x = element_text(size = 11),
+    axis.text.y = element_markdown(size = 9),
+    legend.position = 'top',
+    legend.margin = margin(0, 0, -5, 0),
+    legend.text = element_text(size = 9),
+    legend.key.size = unit(0.2, "cm")
+  )
+
+
+unexpected_bad <- bad_results <- results %>% 
+  filter(.resid < 0) %>% 
+  slice_min(order_by = remainder, n = 10, with_ties = F)  %>% 
+  select(lbl, .resid, Predicted = .fitted, 
+         Actual = averageRating, lower, upper, remainder) %>% 
+  ggplot(aes(x = fct_reorder(lbl, -remainder))) + 
+    geom_pointrange(aes(y = Predicted, ymin = lower, 
+                        ymax = upper, color = 'Predicted\nRating')) + 
+    geom_point(aes(y = Actual, color = "Actual\nRating"), size = 2) +
+    geom_text(aes(label = Actual, y = Actual), 
+              color = 'darkred', nudge_x = .2) +
+    geom_text(aes(label = round(lower, 1), y = lower),  
+              nudge_x = .2, size = 3) +
+    geom_text(aes(label = round(upper, 1), y = upper),  
+              nudge_x = .2, size = 3) +
+    geom_text(aes(label = round(Predicted, 1), y = Predicted),  
+              nudge_x = .2) +
+    scale_color_manual(values = color, name = '') +
+    labs(x = "", y = "IMDB Rating", 
+         title = "Top 10 Unexpectedly <i style = 'color:#b22222'>Bad Episodes </i>"
+    ) + 
+    coord_flip() + 
+    theme(
+      plot.title = element_markdown(),
+      plot.title.position = 'plot',
+      plot.subtitle = element_markdown(size = 10),
+      panel.grid.major.x = element_blank(),
+      axis.text.x = element_markdown(size = 10, hjust = .95, vjust = .5),
+      axis.title.x = element_text(size = 11),
+      axis.text.y = element_markdown(size = 9),
+      legend.position = 'top',
+      legend.margin = margin(0, 0, -5, 0),
+      legend.text = element_text(size = 9),
+      legend.key.size = unit(0.2, "cm")
+    )
+
+examples <- results %>% 
+  filter(primaryTitle == 'Stranger Things') %>% 
+  select(lbl, .resid, Predicted = .fitted, Actual = averageRating, lower, upper, remainder) %>% 
+  ggplot(aes(x = fct_reorder(lbl, -remainder))) + 
+  geom_pointrange(aes(y = Predicted, ymin = lower, ymax = upper, color = 'Predicted\nRating')) + 
+  geom_point(aes(y = Actual, color = "Actual\nRating"), size = 2) +
+  geom_text(aes(label = Actual, y = Actual), color = 'darkred', nudge_x = .1) +
+  geom_text(aes(label = round(lower, 1), y = lower),  nudge_x = .05, size = 3) +
+  geom_text(aes(label = round(upper, 1), y = upper),  nudge_x = .05, size = 3) +
+  geom_text(aes(label = round(Predicted, 1), y = Predicted),  nudge_x = .1) +
+  annotate(
+    "richtext",
+    y = 8.5,
+    x = 1.3,
+    size = 3,
+    label = "*The expected IMDB ratings for this episode of <br> Stranger Things is between 7.4 and 9.7*",
+    family = "Asap SemiCondensed",
+    label.color = NA
+  ) + 
+  annotate(
+    'curve',
+    xend = 1,
+    x = .7,
+    yend = 6.1,
+    y = 6.5,
+    curvature = .25,
+    arrow = arrow(
+      length = unit(7, "pt"),
+      type = "closed"
+    )
+  ) + 
+  annotate(
+    'text',
+    x = .7,
+    y = 6.5,
+    label = "The episode had an\n6.1 rating on IMDB",
+    family = "Asap SemiCondensed",
+    size = 3,
+    vjust = 1
+  ) + 
+  annotate(
+    'curve',
+    x = 1,
+    xend = 1,
+    y = 6.1,
+    yend = 7.4,
+    color = 'darkred',
+    lty = 2,
+    curvature = -.3,
+    arrow = arrow(
+      length = unit(7, "pt"),
+      type = "closed",
+      ends = 'both'
+    )
+  ) + 
+  annotate(
+    'richtext',
+    x = 1.4,
+    y = 6.75,
+    size = 3,
+    color = 'darkred',
+    family = "Asap SemiCondensed",
+    label = "<i>The <b>'unexpectedness'</b> is the difference between<br>the outer bound (7.4) and the actual (6.1)
+    <br>7.4 - 6.1 = 1.3",
+    label.color = NA,
+    fill = NA
+  ) + 
+  scale_color_manual(values = color, name = '') +
+  labs(x = "", y = "IMDB Rating", 
+       title = "Defining Unexpected",
+       subtitle = "<span style = 'color:#ff1515'><b>Stranger Things</b></span> S02E07 - Chapter Seven: The Lost Sister") +
+  coord_flip() + 
+  theme(
+    plot.title = element_markdown(),
+    #plot.title.position = 'plot',
+    plot.subtitle = element_markdown(size = 12),
+    panel.grid.major.x = element_blank(),
+    axis.text.x = element_text(size = 10),
+    axis.title.x = element_text(size = 11),
+    axis.text.y = element_blank(),
+    axis.ticks.y = element_blank(),
+    legend.position = 'top',
+    legend.margin = margin(0, 0, -5, 0),
+    legend.text = element_text(size = 10),
+    legend.key.size = unit(0.2, "cm")
+  )  
+
+(unexpected_good + unexpected_bad) / wrap_elements(full = examples) +
+  plot_layout(
+    #widths = c(.5, 1),
+    heights = c(5, 3)
+  ) + 
+  plot_annotation(
+  title = 'The Most Unexpectedly Good and Bad Episodes of TV',
+  subtitle = "*As measured by difference between Prediction Interval and Actual IMDB Episode Rating*",
+  caption = "*Source:* IMDB | **Author:** JLaw",
+  theme = theme(
+    plot.title = element_markdown(size = 20),
+    plot.subtitle = element_markdown(size = 15),
+    plot.caption = element_markdown()
+  )
+  )
+
+
+```

@@ -7,6 +7,10 @@ mind. Inspired by [z3tt’s TidyTuesday
 repo](https://github.com/Z3tt/TidyTuesday). I decided to make a repo for
 myself.
 
+## 2023/10/01 - The Most Unexpectedly Good and Bad Episodes of TV
+
+![](20231001_UnexpectedTV/most_unexpected_tv.png)
+
 ## 2021/12/29 - The Chaos of College Football Realignment
 
 ![](20211229_CollegeFootballRealignment/conference_realignment.png)

@@ -1,0 +1,109 @@
+---
+title: ''
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, error = FALSE, message = FALSE, dev = "ragg_png")
+```
+
+```{r libraries}
+library(tidyverse)
+library(lubridate)
+library(ggimage)
+library(glue)
+library(ggtext)
+library(httr)
+```
+
+```{r data}
+#Gotten from Kaggle
+movies <- read_csv("data/rotten_tomatoes_movies.csv")
+
+cleaned <- movies %>% 
+  filter(!is.na(audience_rating),
+         !is.na(tomatometer_count),
+         tomatometer_count >= 40,
+         audience_count>= 5000,
+         !str_detect(genres, 'Documentary')) %>% 
+  mutate(diff = audience_rating - tomatometer_rating,
+         release_year = year(original_release_date)) %>%
+  select(movie_title, release_year, tomatometer_rating, 
+         tomatometer_count, audience_rating, audience_count, diff, genres)
+  
+
+most_audience <- cleaned %>% arrange(-diff, -tomatometer_count) %>% head(10)
+```
+
+```{r api, cache=TRUE}
+OMDB <- Sys.getenv('OMDB_API_KEY')
+
+get_poster <- function(title, year){
+  url = glue("http://www.omdbapi.com/?apikey={OMDB}&t={str_replace_all(title, ' ', '+')}&y={year}")
+  resp = GET(url)
+  if(content(resp)$Response == "True"){
+    return(
+      content(resp, as = 'parsed')$Poster
+    )
+  }
+}
+
+most_audience_w_poster <- most_audience %>% 
+  mutate(poster_url = map2_chr(movie_title, release_year, get_poster))
+```
+
+```{r chart, fig.height=10, fig.width=8}
+most_audience_w_poster %>% 
+  mutate(
+    lbl = glue("**{movie_title}** ({release_year})"),
+    poster_lbl = glue('<img src = {poster_url} height = "40"/><br> {lbl}'),
+    movie_title = fct_reorder(movie_title, -diff)
+  ) %>% 
+  ggplot(aes(x = poster_lbl)) + 
+    #geom_col(aes(y = diff), fill = 'lightblue', alpha = 0.75, width = 0.6) + 
+    geom_linerange(aes(ymin = tomatometer_rating, ymax = audience_rating),
+                   linewidth = 3, color = 'grey90') + 
+    geom_image(aes(y = audience_rating,
+                   image = 'images/good_audience.png'),
+               size = .2) + 
+    geom_image(aes(y = tomatometer_rating,
+                   image = 'images/rotten_critic.png'),
+               size = .2) + 
+    geom_text(aes(y = tomatometer_rating,
+                  label = glue('{tomatometer_rating}%')),
+              nudge_y = -6) +
+    geom_text(aes(y = audience_rating,
+                  label = glue('{audience_rating}%')),
+              nudge_y = 6) +
+    geom_text(y = 50, aes(label = glue("{diff}%")), color = 'firebrick') + 
+    scale_y_continuous(breaks = c(5, 50, 90),
+                       labels = c('Critics', 'Difference', 'Audience'),
+                       sec.axis = dup_axis()) + 
+    labs(
+      x = "",
+      y = "",
+      title = "**Movies For the People**: The Ten Largest &nbsp; <img width = '55' height = '20'  src = 'images/rottentomatoes_logo.png' /> &nbsp; Gaps Between Audience and Critics Scores",
+      caption = "**Source:** RottenTomatoes Data from Kaggle | **Author**: JLaw<br>Data limited to Non-Documentaries with 40+ Critic Reviews and 5K+ Audience Reviews"
+    ) + 
+    facet_wrap(~movie_title, ncol = 1, scales = "free_y") +
+    coord_flip() +
+    theme_light() + 
+    theme(
+      plot.background = element_rect(linewidth = 1, color = "grey60"),
+      plot.title = element_markdown(size = 15),
+      plot.title.position = 'plot',
+      #plot.margin = margin(5, 20, 5, 10),
+      plot.caption = element_markdown(),
+      text = element_text(family = 'Asap SemiCondensed', size = 14),
+      axis.ticks.y = element_blank(),
+      axis.text.y = element_markdown(),
+      axis.ticks.x = element_blank(),
+      axis.text.x = element_markdown(),
+      panel.grid = element_blank(),
+      strip.text = element_blank(),
+      panel.border = element_blank() 
+    )
+
+```
+
+

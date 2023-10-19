@@ -23,8 +23,8 @@ movies <- read_csv("data/rotten_tomatoes_movies.csv")
 cleaned <- movies %>% 
   filter(!is.na(audience_rating),
          !is.na(tomatometer_count),
-         tomatometer_count >= 40,
-         audience_count>= 5000,
+         tomatometer_count >= 25,
+         audience_count>= 10000,
          !str_detect(genres, 'Documentary')) %>% 
   mutate(diff = audience_rating - tomatometer_rating,
          release_year = year(original_release_date)) %>%
@@ -35,7 +35,7 @@ cleaned <- movies %>%
 most_audience <- cleaned %>% arrange(-diff, -tomatometer_count) %>% head(10)
 ```
 
-```{r api, cache=TRUE}
+```{r api}
 OMDB <- Sys.getenv('OMDB_API_KEY')
 
 get_poster <- function(title, year){
@@ -83,7 +83,7 @@ most_audience_w_poster %>%
       x = "",
       y = "",
       title = "**Movies For the People**: The Ten Largest &nbsp; <img width = '55' height = '20'  src = 'images/rottentomatoes_logo.png' /> &nbsp; Gaps Between Audience and Critics Scores",
-      caption = "**Source:** RottenTomatoes Data from Kaggle | **Author**: JLaw<br>Data limited to Non-Documentaries with 40+ Critic Reviews and 5K+ Audience Reviews"
+      caption = "**Source:** RottenTomatoes Data from Kaggle | **Author**: JLaw<br>Data limited to Non-Documentaries with 25+ Critic Reviews and 10K+ Audience Reviews"
     ) + 
     facet_wrap(~movie_title, ncol = 1, scales = "free_y") +
     coord_flip() +

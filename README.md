@@ -7,6 +7,10 @@ mind. Inspired by [z3tt’s TidyTuesday
 repo](https://github.com/Z3tt/TidyTuesday). I decided to make a repo for
 myself.
 
+## 2023/10/19 - Movies For The People
+
+![](20231019_MoviesForThePeople/most_audience.png)
+
 ## 2023/10/01 - The Most Unexpectedly Good and Bad Episodes of TV
 
 ![](20231001_UnexpectedTV/most_unexpected_tv.png)

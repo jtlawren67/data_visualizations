@@ -1,0 +1,112 @@
+---
+title: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, error = FALSE, message = FALSE, dev = "ragg_png")
+```
+
+```{r libraries}
+library(rvest)
+library(tidyverse)
+library(ggtext)
+library(glue)
+```
+
+```{r read_in_teams}
+teams <- read_html("https://www.hockey-reference.com/teams/") %>% 
+  html_element(css = "#active_franchises") %>% 
+  html_table() %>% 
+  select(Franchise, From, To, Yrs, Champs = `St Cup`) %>% 
+  mutate(
+    active = if_else(To == 2024, 1, 0),
+  ) %>% 
+  group_by(Franchise, active) %>% 
+  mutate(
+    top_level_id = if_else(active == 1 & Yrs == max(Yrs), 1, 0),
+    top_level = if_else(active == 1 & Yrs == max(Yrs), Franchise, NA_character_),
+    cnt = n()
+  ) %>% 
+  ungroup() %>% 
+  fill(top_level)
+```
+
+```{r read_in_champs}
+champions <- read_html("https://www.hockey-reference.com/awards/stanley.html") %>% 
+  html_element(css = "#stanley") %>% 
+  html_table() %>% 
+  transmute(
+    Team,
+    championship_year = parse_integer(str_sub(Season, 1, 4))+1
+  ) 
+```
+
+
+```{r merge_and_format}
+combined <- champions %>% 
+  left_join(teams %>% 
+              filter(top_level_id == 0 | (top_level_id == 1 & cnt == 1)) %>% 
+              select(top_level, top_level_id, Franchise),
+            by = c("Team" = "Franchise")) %>% 
+  left_join(
+    teams %>% 
+      filter(top_level_id == 1) %>%
+      select(top_level, From, To),
+    by = "top_level"
+  ) %>%
+  filter(To == 2024) 
+
+skeleton <- teams %>% 
+  filter(top_level_id == 1) %>% 
+  rowwise() %>%
+  mutate(year_id = list(seq(From+1, 2023))) %>% 
+  unnest(year_id) %>% 
+  ungroup() %>% 
+  select(top_level, From, year_id) %>%
+  left_join(
+    combined %>% select(top_level, championship_year),
+    by = join_by(top_level == top_level, year_id == championship_year),
+    keep = TRUE
+  ) %>% 
+  left_join(
+    teamcolors::teamcolors %>% select(name, logo),
+    by = c("top_level.x" = "name")
+  ) %>% 
+  group_by(top_level.x) %>%
+  fill(championship_year) %>% 
+  mutate(
+    years_since_championship = if_else(
+      is.na(championship_year),
+      year_id - From,
+      year_id - championship_year
+    ),
+    order_var = max(if_else(year_id == 2023, years_since_championship, -1))
+  )
+```
+
+```{r viz,  fig.height=9, fig.width=11}
+palette = colorRampPalette(c("#ffe9e0", "#3333cc"))(max(skeleton$years_since_championship)+1)
+
+skeleton %>%
+  mutate(
+    colors = map_chr(years_since_championship+1, ~palette[.x]),
+    colors = if_else(years_since_championship == 0, 'firebrick', colors),
+    text_label = if_else((lead(years_since_championship) == 0  & years_since_championship != 0) | year_id == 2023, years_since_championship, NA_integer_)
+  ) %>% 
+  ggplot(aes(y = fct_reorder(top_level.x, order_var), x = year_id)) + 
+    geom_tile(aes(fill = colors)) + 
+    geom_text(aes(label = text_label), size = 3.5, fontface = 'bold') + 
+    scale_fill_identity() + 
+    scale_x_continuous(breaks = seq(1915, 2020, 5), position = 'top', expand = c(0, .05)) + 
+    labs(x = "", y = "", title = "Stanley Cup Championship Droughts<br />1917 to 2023",
+         caption = "**Source:** *hockey-reference.com* | **Author:** JLaw<br /><span style = \"color: #b22222\">Red =</span> Championship Year <br />Includes Prior Franchise History (e.g, Colorado Avalanche includes Quebec Nordiques)") + 
+    theme_light() + 
+    theme(
+      text = element_text(family = 'Asap SemiCondensed', size = 12),
+      axis.text.x.top = element_markdown(),
+      axis.text.y = element_markdown(),
+      plot.title = element_markdown(hjust = .5),
+      plot.caption = element_markdown()
+    )
+```

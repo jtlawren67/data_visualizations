@@ -7,6 +7,10 @@ mind. Inspired by [z3tt’s TidyTuesday
 repo](https://github.com/Z3tt/TidyTuesday). I decided to make a repo for
 myself.
 
+## 2023/11/05 - Longest Stanley Cup Droughts (1917-2023)
+
+![](20231105_StanleyCupDrought/StanleyCupDrought.png)
+
 ## 2023/10/19 - Movies For The People
 
 ![](20231019_MoviesForThePeople/most_audience.png)

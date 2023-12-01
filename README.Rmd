@@ -12,6 +12,9 @@ In addition to my [blog](https://jlaw.netlify.app), I occasionally try to make r
 ## 2023/11/05 - Longest Stanley Cup Droughts (1917-2023)
 ![](20231105_StanleyCupDrought/StanleyCupDrought.png)
 
+## 2023/10/20 - Movies For The Critics
+![](20231020_MoviesForTheCritics/most_critic.png)
+
 ## 2023/10/19 - Movies For The People
 ![](20231019_MoviesForThePeople/most_audience.png)
 

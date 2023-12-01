@@ -11,6 +11,10 @@ myself.
 
 ![](20231105_StanleyCupDrought/StanleyCupDrought.png)
 
+## 2023/10/20 - Movies For The Critics
+
+![](20231020_MoviesForTheCritics/most_critic.png)
+
 ## 2023/10/19 - Movies For The People
 
 ![](20231019_MoviesForThePeople/most_audience.png)

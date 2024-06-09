@@ -17,16 +17,14 @@ library(png)
 
 
 ```{r data_prep}
-background <- readPNG('huck_background.png')
-
-dt <- read_csv('b62171c7-b0c9-428b-a204-8944699629bd.csv') %>% 
+dt <- read_csv('data/c20d1f9d-b0f0-472c-844e-5d1ff942c27b.csv') %>% 
   filter(Type == 'Sleep') %>% 
   dplyr::select(Start, End)
 
 skeleton <- tibble(
   tm = seq(
   from = ymd_hms("2023-05-21 00:00:00"),
-  to = ymd_hms('2023-11-10 23:59:00'),
+  to = ymd_hms('2023-12-31 23:59:00'),
   by = '15 min'
 ))
 
@@ -112,7 +110,7 @@ overall / by_month +
   ) +
   plot_annotation(
     title = "**Baby JLaw's Sleep Chart**",
-    subtitle = glue('*May 22, 2023 - {format(as.Date(max(dt$End)), "%B %d, %Y")}*'),
+    subtitle = glue('*May 22, 2023 - December 31, 2023*'),
     #Theme in Annotation Apploies ONLY to Patchwork
     theme = theme(
       plot.background = element_rect(linewidth = .9, color = 'grey80', fill = '#d7f1f7'),

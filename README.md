@@ -7,6 +7,10 @@ mind. Inspired by [z3tt’s TidyTuesday
 repo](https://github.com/Z3tt/TidyTuesday). I decided to make a repo for
 myself.
 
+## 2024/06/09 - Baby JLaw’s Sleep Patterns
+
+![](20240609_BabySleep/baby_sleep.png)
+
 ## 2023/11/05 - Longest Stanley Cup Droughts (1917-2023)
 
 ![](20231105_StanleyCupDrought/StanleyCupDrought.png)

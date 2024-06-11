@@ -1,0 +1,186 @@
+---
+title: ""
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, error = FALSE,  message = FALSE, dev = "ragg_png")
+```
+
+```{r libraries}
+library(tidyverse)
+library(ggpubr)
+library(glue)
+library(patchwork)
+library(png)
+library(tidytext)
+library(ggtext)
+```
+
+```{r data, cache=TRUE}
+filelist <- dir('data') %>% keep(~str_detect(.x, 'srt'))
+
+all_files <- map_dfr(filelist, function(x){
+  data.frame(orig = readLines(glue('data/{x}'))) %>%
+    filter(orig != '') %>%
+    mutate(
+      type = case_when(
+        str_detect(orig, '^\\d+$') ~ 'block',
+        str_detect(orig, '^\\d{2}:') ~ 'time',
+        TRUE ~ 'text'
+      ),
+      new_block = cumsum((type == 'block')*1)
+    ) %>%
+    group_by(new_block) %>% 
+    summarize(time = max(if_else(type == 'time', orig, NA_character_), na.rm = T),
+              text = paste(if_else(type == 'text', orig, ''), collapse = ' ')
+    ) %>%
+    mutate(file = str_replace_all(x, 'Who_s', "Who's"),
+           timestamp = str_extract(time, '^\\d{2}:\\d{2}:\\d{2},\\d{3}') %>%
+             str_replace(',','.') %>%
+             strptime(format="%H:%M:%OS")
+           ) 
+})
+
+tokens <- all_files %>%
+  unnest_tokens(word, text) %>%
+  anti_join(stop_words)
+
+```
+
+```{r overall}
+overall <- tokens %>%
+  group_by(num = substr(file, 1, 2), ep=str_remove_all(file, '^\\d+-|.srt')) %>%
+  summarize(dirty = sum(if_else(str_detect(word, 'dirt\\w?+'), 1, 0)),
+            total_words = n()) %>%
+  mutate(pct = dirty / total_words,
+         num = as.numeric(num)) %>%
+  ggplot(aes(x = num, y = dirty)) +
+    geom_line(color = '#f2d66b',lwd = 1.2) + 
+    geom_point(color = '#f2d66b', size = 3) + 
+    scale_x_continuous(labels = seq(1, 20, 1),
+                       breaks = seq(1, 20, 1)) +
+    labs(
+      x = "Episode",
+      y = "# of Utterances",
+      title = "How <i><b>DIRTY</b></i> is Each Episode?",
+      subtitle = "Number of times 'Dirty' is said per Episode"
+    ) + 
+    theme(
+      text = element_text(color = '#f2d66b', family = 'Asap SemiCondensed'),
+      axis.text = element_text(color = '#f2d66b', size = 14) ,
+      plot.title.position = 'plot',
+      plot.title = element_markdown(),
+      plot.background = element_rect(fill = '#162647', color = '#162647'),
+      panel.background = element_rect(fill = '#162647'),
+      panel.grid.major.x = element_blank(), 
+      panel.grid.minor.x = element_blank()
+      
+    )
+
+```
+
+```{r time_epr_episode}
+by_time <- tokens %>% 
+  filter(str_detect(word, 'dirt\\w?+')) %>% 
+  transmute(minutes = (floor(minute(timestamp)/5)+1)*5, 
+            ep = substr(file,1, 2), 
+            nm = str_remove_all(file, '.srt')
+            ) %>%
+  group_by(minutes, ep, nm) %>%
+  summarize(n = n(), .groups = 'drop') %>%
+  group_by(ep) %>%
+  mutate(total = sum(n),
+         lbl = fct_reorder(glue("{blerg} (n={total})", blerg = str_wrap(str_remove(nm, '^\\d+-'), 17)), ep)
+  ) %>%  
+  ggplot(aes(x = minutes, y = n)) + 
+  geom_col(fill = "#f2d66b") + 
+  facet_wrap(~lbl, scales = 'free', ncol = 5 ) + 
+  labs(title = "What is the **DIRTIEST** Time of an Episode?",
+       subtitle = "# of Utterances of 'Dirty' By Episode and Minute of Runtime",
+       x = "Minute of Runtime",
+       y = "# of Utterances") + 
+  scale_x_continuous(breaks = seq(0, 40, 5), limits = c(0, 41)) +
+  scale_y_continuous(limits = c(0, 13)) + 
+  theme_bw() + 
+    theme(
+      text = element_text(color = '#f2d66b', family = 'Asap SemiCondensed'),
+      axis.text = element_text(color = '#f2d66b', size = 8) ,
+      plot.title.position = 'plot',
+      plot.title = element_markdown(),
+      plot.background = element_rect(fill = '#162647', color = '#162647'),
+      panel.background = element_rect(fill = '#162647', color = 'white'),
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      strip.background = element_rect(fill = '#f2d66b'),
+      strip.text = element_text(color = '#162647')
+      
+    )
+
+
+
+```
+
+```{r viz,  fig.height=12, fig.width=8}
+overall / by_time +
+  plot_layout(
+    heights = c(0.5, 2)
+  ) +
+  plot_annotation(
+    title = "Just How Dirty is <span><b><i>The Challenge: Dirty 30</i></b></span>?",
+    subtitle = "Using speech-to-text to transcribe episodes of The Challenge: Dirty 30 and count the number of times cast-members said the word *'Dirty', 'Dirt', 'Dirtier', or 'Dirtiest'*",
+    #Theme in Annotation Apploies ONLY to Patchwork
+    theme = theme(
+      plot.background = element_rect(linewidth = .9, color = 'grey80', fill = '#162647'),
+      plot.title = element_markdown(family = 'Rubik', color = '#f2d66b', size= 18),
+      plot.subtitle = element_textbox_simple(family = 'Roboto', color = '#f2d66b', size = 11,
+                                      lineheight =  1, margin = margin(0, 0, 5.5, 0),),
+      plot.margin = margin(c(5, 10, 1, 10)),
+    )
+  ) 
+```
+
+```{r}
+by_time <- tokens %>% 
+  filter(str_detect(word, 'dirt\\w?+')) %>% 
+  transmute(minutes = minute(timestamp), 
+            ep = substr(file,1, 2), 
+            nm = str_remove_all(file, '.srt')
+            ) %>%
+  group_by(minutes, ep, nm) %>%
+  summarize(n = n(), .groups = 'drop') %>%
+  group_by(ep) %>%
+  arrange(minutes) %>%
+  mutate(total = sum(n),
+         lbl = fct_reorder(glue("{blerg} (n={total})", blerg = str_wrap(str_remove(nm, '^\\d+-'), 17)), ep),
+         cuml = cumsum(n)/total,
+         pct = n/total
+) %>%
+  filter(ep %in% c('01', '02', '04', '09', '17')) %>%
+  ggplot(aes(x = minutes, y = cuml)) + 
+  #geom_line(color = "#f2d66b", aes(lty = ep, group = ep)) + 
+  geom_text(aes(label = ep)) + 
+  #facet_wrap(~lbl, scales = 'free', ncol = 5 ) + 
+  labs(title = "What is the **DIRTIEST** Time of an Episode?",
+       subtitle = "# of Utterances of 'Dirty' By Episode and Minute of Runtime",
+       x = "Minute of Runtime",
+       y = "# of Utterances") + 
+  scale_x_continuous(breaks = seq(0, 40, 5), limits = c(0, 41)) +
+  #scale_y_continuous(limits = c(0, 7)) + 
+  theme_bw() + 
+    theme(
+      text = element_text(color = '#f2d66b', family = 'Asap SemiCondensed'),
+      axis.text = element_text(color = '#f2d66b', size = 8) ,
+      plot.title.position = 'plot',
+      plot.title = element_markdown(),
+      plot.background = element_rect(fill = '#162647', color = '#162647'),
+      panel.background = element_rect(fill = '#162647', color = 'white'),
+      panel.grid.major = element_blank(), 
+      panel.grid.minor = element_blank(),
+      strip.background = element_rect(fill = '#f2d66b'),
+      strip.text = element_text(color = '#162647')
+      
+    )
+
+```
+

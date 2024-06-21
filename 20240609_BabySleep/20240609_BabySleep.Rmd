@@ -111,6 +111,7 @@ overall / by_month +
   plot_annotation(
     title = "**Baby JLaw's Sleep Chart**",
     subtitle = glue('*May 22, 2023 - December 31, 2023*'),
+    caption =  '**Author:** JLaw',
     #Theme in Annotation Apploies ONLY to Patchwork
     theme = theme(
       plot.background = element_rect(linewidth = .9, color = 'grey80', fill = '#d7f1f7'),
@@ -121,7 +122,7 @@ overall / by_month +
     plot.margin = margin(c(5, 10, 0, 10)),
     plot.title = ggtext::element_markdown(size = 14, family = 'Roboto'),
     plot.subtitle = ggtext::element_markdown(size = 12),
-    plot.caption = ggtext::element_markdown(hjust = 0),
+    plot.caption = ggtext::element_markdown(hjust = 1),
     strip.text.x = ggtext::element_markdown(face = 'bold'),
   )
 

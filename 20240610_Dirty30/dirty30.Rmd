@@ -9,14 +9,11 @@ knitr::opts_chunk$set(echo = FALSE, warning = FALSE, error = FALSE,  message = F
 
 ```{r libraries}
 library(tidyverse)
-library(ggpubr)
 library(glue)
 library(patchwork)
-library(png)
 library(tidytext)
 library(ggtext)
 library(scales)
-library(ggrepel)
 ```
 
 ```{r data, cache=TRUE}
@@ -54,7 +51,7 @@ tokens <- all_files %>%
 overall <- tokens %>%
   group_by(num = substr(file, 1, 2), ep=str_remove_all(file, '^\\d+-|.srt')) %>%
   summarize(dirty = sum(if_else(str_detect(word, 'dirt\\w?+'), 1, 0)),
-            total_words = n()) %>%
+            total_words = n()) %>% 
   mutate(pct = dirty / total_words,
          num = as.numeric(num)) %>%
   ggplot(aes(x = num, y = dirty)) +
@@ -63,14 +60,16 @@ overall <- tokens %>%
     scale_x_continuous(labels = seq(1, 20, 1),
                        breaks = seq(1, 20, 1)) +
     labs(
-      x = "Episode",
-      y = "# of Utterances",
+      x = "**Episode**",
+      y = "**# of Utterances**",
       title = "How <i><b>DIRTY</b></i> is Each Episode?",
       subtitle = "Number of times 'Dirty' is said per Episode"
     ) + 
     theme(
       text = element_text(color = '#f2d66b', family = 'Asap SemiCondensed'),
       axis.text = element_text(color = '#f2d66b', size = 14) ,
+      axis.title.x = element_markdown(),
+      axis.title.y = element_markdown(),
       plot.title.position = 'plot',
       plot.title = element_markdown(),
       plot.background = element_rect(fill = '#162647', color = '#162647'),
@@ -87,9 +86,10 @@ overall <- tokens %>%
 time_v2 <- tokens %>% 
   filter(str_detect(word, 'dirt\\w?+')) %>% 
   transmute(minutes = floor(minute(timestamp))) %>%
-  count(minutes) %>%
+  count(minutes) %>% 
   mutate(pct = n / sum(n),
-         cuml = cumsum(pct)) %>% 
+         total = sum(n),
+         cuml = cumsum(pct)) %>%
   ggplot(aes(x = minutes, y = n)) + 
   geom_hline(yintercept = 5, ltw = 2, color = 'white') + 
   geom_hline(yintercept = 10, ltw = 2, color = 'white') + 
@@ -108,16 +108,17 @@ time_v2 <- tokens %>%
   labs(
     title = "The <i><b>DIRTIEST</b></i> Time?",
     subtitle = "# of 'Dirty's by Minute of Episode",
-    x = "Minute of Episode",
+    x = "**Minute of Episode**",
     y = ""
   ) + 
     theme(
       text = element_text(color = '#f2d66b', family = 'Asap SemiCondensed'),
-      axis.text = element_text(color = '#f2d66b', size = 12),
+      axis.text = element_text(color = '#f2d66b', size = 14),
       axis.text.x = element_text(face='bold'),
       axis.text.y = element_blank(),
       plot.title.position = 'plot',
       plot.title = element_markdown(),
+      axis.title.x = element_markdown(),
       panel.grid.minor = element_blank(),
       panel.grid.major = element_blank(),
       plot.background = element_rect(fill = '#162647', color = '#162647'),
@@ -129,37 +130,7 @@ time_v2 <- tokens %>%
   
 ```
 
-
-```{r dirty_count}
-dirty_count <- tokens %>% 
-  filter(str_detect(word, 'dirt\\w?+')) %>% 
-  count(word) %>%
-  ggplot(aes(x = fct_reorder(word, n), y = n)) + 
-    geom_col(fill = '#f2d66b') +
-    geom_label(aes(label = n, hjust = if_else(n < 20, 0, 1)), color = 'black', fill = 'white') + 
-    labs(
-        x = "",
-        y = "# of Utterances",
-        title = "The <i><b>DIRTIEST</b></i> Words?"
-      ) + 
-      scale_y_continuous(expand = c(0, 0), limits = c(0, 240)) + 
-      coord_flip() + 
-      theme(
-        text = element_text(color = '#f2d66b', family = 'Asap SemiCondensed'),
-        axis.text = element_text(color = '#f2d66b', size = 14) ,
-        plot.title.position = 'plot',
-        plot.title = element_markdown(),
-        plot.background = element_rect(fill = '#162647', color = '#162647'),
-        panel.background = element_rect(fill = '#162647'),
-        panel.grid.major = element_blank(), 
-        panel.grid.minor = element_blank(),
-        axis.line.x = element_line(color = 'white')
-      )    
-
-```
-
-
-```{r}
+```{r bigrams}
 dirty_count_bigram <- all_files %>%
   unnest_tokens(word, text, token = 'ngrams', n = 2) %>%
   filter(str_detect(word, 'dirt\\w?+')) %>%
@@ -174,7 +145,7 @@ dirty_count_bigram <- all_files %>%
     geom_label(aes(label = n, hjust = if_else(n < 20, 0, 1)), color = 'black', fill = 'white') + 
     labs(
         x = "",
-        y = "# of Utterances",
+        y = "**# of Utterances**",
         title = "The <i><b>DIRTIEST</b></i> Phrases?",
         subtitle = "Bigrams with stop words removed"
       ) + 
@@ -190,7 +161,8 @@ dirty_count_bigram <- all_files %>%
         panel.grid.major = element_blank(), 
         panel.grid.minor = element_blank(),
         axis.line.x = element_line(color = 'white'),
-        axis.text.x = element_blank()
+        axis.text.x = element_blank(),
+        axis.title.x = element_markdown()
       )    
 ```
 
@@ -200,15 +172,17 @@ free(overall) / (dirty_count_bigram + time_v2) +
   #   heights = c(1, 2)
   # ) +
   plot_annotation(
-    title = "Just How Dirty is <span><b><i>The Challenge: Dirty 30</i></b></span>?",
-    subtitle = "Using speech-to-text to transcribe episodes of The Challenge: Dirty 30 and count the number of times cast-members said the word *'Dirty', 'Dirt', 'Dirtier', or 'Dirtiest'*",
+    title = "<span style='font-family:Roboto'>Just How Dirty is </span><span style='font-size:35px'>The Challenge: Dirty 30?</span>",
+    subtitle = "Transcribing episodes using speech-to-text to analyze the <b>298</b> times cast-members said the words *'Dirty', 'Dirt', 'Dirtier', or 'Dirtiest'*",
+    caption = '**Author:** JLaw',
     #Theme in Annotation Apploies ONLY to Patchwork
     theme = theme(
       plot.background = element_rect(linewidth = .9, color = 'grey80', fill = '#162647'),
-      plot.title = element_markdown(family = 'Mukta', color = '#f2d66b', size= 24),
+      plot.title = element_markdown(family = 'Bebas Neue', color = '#f2d66b', size= 24),
       plot.subtitle = element_textbox_simple(family = 'Roboto', color = '#f2d66b', size = 11,
-                                      lineheight =  1, margin = margin(0, 0, 5.5, 0),),
-      plot.margin = margin(c(5, 1, 0, 1)),
+                                      lineheight =  1, margin = margin(0, 0, 15, 0),),
+      plot.caption = element_markdown(hjust = 1, color = "#f2d66b", family = 'Roboto'),
+      plot.margin = margin(c(8, 1, 0, 1))
     )
   ) 
 ```

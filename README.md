@@ -7,6 +7,10 @@ mind. Inspired by [z3tt’s TidyTuesday
 repo](https://github.com/Z3tt/TidyTuesday). I decided to make a repo for
 myself.
 
+## 2024/06/21 - How Dirty Was The Challenge Dirty 30?
+
+![](20240610_Dirty30/dirty30.png)
+
 ## 2024/06/09 - Baby JLaw’s Sleep Patterns
 
 ![](20240609_BabySleep/baby_sleep.png)
